@@ -1,4 +1,4 @@
-# AWAF-RGT: AI-Assisted WAF Rule Generator & Tuner
+# WAF-RGT: WAF Rule Generator & Tuner
 
 ## Project Overview
 
