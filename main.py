@@ -1,14 +1,15 @@
 import argparse
 import logging
 import datetime
-import re # Import datetime for generation date
+import re # Ensure re is imported for FALSE_POSITIVE_WHITELIST
+
 from parser import parse_log_entry
 from detector import detect_attacks
 from rule_generator import generate_rule
 
 # --- Logging Setup ---
 logging.basicConfig(
-    level=logging.INFO, # Keep at INFO for cleaner output during normal runs
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("waf_rgt.log"),
@@ -17,17 +18,10 @@ logging.basicConfig(
 )
 
 # --- False Positive Whitelist (Simplified for this phase) ---
-# These are regex patterns that, if matched, will be considered benign
-# and will prevent a rule from being generated for that specific detection.
-# In a real system, this would be dynamic, user-managed, or learned.
-# Example: The "Command Injection - Common Commands" detection on "/products?category=electronics&id=123"
-# is a false positive. We can add a pattern that specifically whitelists 'id=\d+'.
 FALSE_POSITIVE_WHITELIST = [
-    re.compile(r"id=\d+", re.IGNORECASE), # Whitelist common ID parameters
-    re.compile(r"category=[a-zA-Z0-9]+", re.IGNORECASE), # Whitelist common category parameters
+    re.compile(r"id=\d+", re.IGNORECASE),
+    re.compile(r"category=[a-zA-Z0-9]+", re.IGNORECASE),
     # Add more specific patterns as needed based on observed false positives
-    # For example, if "test.php" is a legitimate file, you might add:
-    # re.compile(r"/test.php", re.IGNORECASE)
 ]
 
 def is_false_positive(threat_detection):
@@ -45,9 +39,6 @@ def is_false_positive(threat_detection):
     
     # Apply specific false positive logic based on the threat name or matched field
     if threat_detection['name'] == 'Command Injection - Common Commands' and 'id=' in matched_value:
-        # This is a heuristic for the false positive on '/products?category=electronics&id=123'
-        # The 'id=123' part is what triggered the 'commands' regex.
-        # We can specifically check if the matched value is just a number in an ID parameter.
         if re.search(r"id=\d+", matched_value, re.IGNORECASE):
             logging.info(f"  -> Identified as potential false positive (Command Injection on ID): {matched_value}")
             return True
@@ -94,7 +85,8 @@ def main():
 
     # --- Command Line Argument Parsing ---
     parser = argparse.ArgumentParser(
-        description="Analyze web server logs to suggest WAF rules."
+        description="Analyze web server logs to suggest WAF rules.",
+        formatter_class=argparse.RawTextHelpFormatter # For better help formatting
     )
     parser.add_argument(
         '-i', '--input', 
@@ -105,11 +97,36 @@ def main():
     parser.add_argument(
         '-o', '--output',
         type=str,
-        default="generated_waf_rules.conf", # Default output file name
-        help="Path to the output file for generated WAF rules."
+        default="generated_waf_rules.conf",
+        help="Path to the output file for generated WAF rules.\nDefault: generated_waf_rules.conf"
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help="Enable verbose output (DEBUG level logging)."
+    )
+    parser.add_argument(
+        '--no-rules',
+        action='store_true',
+        help="Do not generate WAF rules, only perform analysis."
+    )
+    parser.add_argument(
+        '--log-level',
+        type=str,
+        default='INFO',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).\nDefault: INFO"
     )
 
     args = parser.parse_args()
+
+    # Set logging level based on arguments
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(getattr(logging, args.log_level.upper())) # Set custom log level
+
+    logging.info(f"Current logging level: {logging.getLevelName(logging.getLogger().level)}")
 
     # --- Read and Parse Logs ---
     logging.info(f"Reading logs from: {args.input}")
@@ -120,6 +137,8 @@ def main():
     logging.info("\n--- Analyzing requests for attack patterns ---")
     all_detected_threats = []
     false_positives_count = 0
+    total_requests_with_threats = 0
+
     for i, req in enumerate(requests):
         threats_in_request = detect_attacks(req)
         
@@ -133,6 +152,7 @@ def main():
                 filtered_threats.append(threat)
 
         if filtered_threats:
+            total_requests_with_threats += 1
             all_detected_threats.extend(filtered_threats)
             logging.info(f"Threat(s) detected in request from {req['ip_address']} ({req['method']} {req['full_path']}):")
             for threat in filtered_threats:
@@ -142,30 +162,35 @@ def main():
 
     logging.info(f"\n--- Analysis Complete. Total threats detected (after FP filtering): {len(all_detected_threats)} ---")
     logging.info(f"Total potential false positives identified: {false_positives_count}")
+    logging.info(f"Total requests analyzed: {len(requests)}")
+    logging.info(f"Total requests with detected threats: {total_requests_with_threats}")
 
-    # --- Generate WAF Rules ---
-    logging.info("\n--- Generating WAF rules ---")
-    generated_rules = set() # Use a set to store unique rules
-    for threat in all_detected_threats:
-        rule = generate_rule(threat)
-        if rule:
-            generated_rules.add(rule) # Add to set to ensure uniqueness
+    # --- Generate WAF Rules (Conditional) ---
+    if not args.no_rules:
+        logging.info("\n--- Generating WAF rules ---")
+        generated_rules = set()
+        for threat in all_detected_threats:
+            rule = generate_rule(threat)
+            if rule:
+                generated_rules.add(rule)
 
-    logging.info(f"Total unique WAF rules generated: {len(generated_rules)}")
+        logging.info(f"Total unique WAF rules generated: {len(generated_rules)}")
 
-    # --- Write Rules to Output File ---
-    try:
-        with open(args.output, 'w') as f:
-            f.write("# Generated by AWAF-RGT (AI-Assisted WAF Rule Generator & Tuner)\n")
-            f.write(f"# Generation Date: {datetime.datetime.now().isoformat()}\n\n")
-            for rule in sorted(list(generated_rules)): # Sort for consistent output
-                f.write(rule)
-                f.write("\n\n") # Add extra newline for readability
-        logging.info(f"Generated WAF rules written to: {args.output}")
-    except Exception as e:
-        logging.error(f"Error writing rules to file {args.output}: {e}")
+        # --- Write Rules to Output File ---
+        try:
+            with open(args.output, 'w') as f:
+                f.write("# Generated by AWAF-RGT (AI-Assisted WAF Rule Generator & Tuner)\n")
+                f.write(f"# Generation Date: {datetime.datetime.now().isoformat()}\n\n")
+                for rule in sorted(list(generated_rules)):
+                    f.write(rule)
+                    f.write("\n\n")
+            logging.info(f"Generated WAF rules written to: {args.output}")
+        except Exception as e:
+            logging.error(f"Error writing rules to file {args.output}: {e}")
+    else:
+        logging.info("\n--- Skipping WAF rule generation as requested. ---")
 
-    logging.info("AWAF-RGT finished Phase 4.")
+    logging.info("AWAF-RGT finished Phase 5.")
 
 if __name__ == "__main__":
     main()
