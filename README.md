@@ -99,8 +99,10 @@ Run with only warning/error messages:
 
 python3 main.py -i sample_access.log --log-level WARNING
 
+```
+
 Contributing
 Contributions are welcome! If you have suggestions for new attack signatures, false positive handling improvements, or other features, please open an issue or submit a pull request.
 
 License
-This project is open
+This project is open-sourced
