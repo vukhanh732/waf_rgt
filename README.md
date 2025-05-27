@@ -39,10 +39,10 @@ A key feature is its ability to handle simulated false positives, helping to tun
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/](https://github.com/)<YOUR_GITHUB_USERNAME>/AWAF-RGT.git
-    cd AWAF-RGT
+    git clone https://github.com/vukhanh732/waf_rgt.git
+    cd waf_rgt
     ```
-    (Replace `<YOUR_GITHUB_USERNAME>` with your actual GitHub username).
+    
 
 2.  **Create and activate a virtual environment:**
     ```bash
