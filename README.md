@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-The **AWAF-RGT (AI-Assisted Web Application Firewall Rule Generator & Tuner)** is a Python-based tool designed to automate and assist in the process of generating and refining Web Application Firewall (WAF) rules. It analyzes web server access logs, identifies suspicious patterns indicative of common web vulnerabilities (like SQL Injection, Cross-Site Scripting, and Path Traversal), and suggests WAF rules in a ModSecurity CRS-like syntax.
+The **WAF-RGT (Web Application Firewall Rule Generator & Tuner)** is a Python-based tool designed to automate and assist in the process of generating and refining Web Application Firewall (WAF) rules. It analyzes web server access logs, identifies suspicious patterns indicative of common web vulnerabilities (like SQL Injection, Cross-Site Scripting, and Path Traversal), and suggests WAF rules in a ModSecurity CRS-like syntax.
 
 A key feature is its ability to handle simulated false positives, helping to tune the generated rules to minimize legitimate traffic blocking.
 
