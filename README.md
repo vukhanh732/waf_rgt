@@ -59,7 +59,6 @@ A key feature is its ability to handle simulated false positives, helping to tun
     ```bash
     pip install -r requirements.txt
     ```
-    (Wait! We haven't created `requirements.txt` yet. Let's do that next.)
 
 ## Usage
 
