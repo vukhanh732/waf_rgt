@@ -1,10 +1,11 @@
 import argparse
 import logging
 from parser import parse_log_entry # Import our parser module
+from detector import detect_attacks # Import our new detector module
 
 # --- Logging Setup ---
 logging.basicConfig(
-    level=logging.INFO, # Set to DEBUG for more verbose output during development
+    level=logging.DEBUG, # Changed to DEBUG for more verbose output during development
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("waf_rgt.log"), # Logs to a file named waf_rgt.log
@@ -62,25 +63,22 @@ def main():
     requests = read_logs(args.input)
     logging.info(f"Finished parsing. Total requests parsed: {len(requests)}")
 
-    # --- Initial Output (for verification) ---
-    if requests:
-        logging.info("\n--- Displaying first 5 parsed requests ---")
-        for i, req in enumerate(requests[:5]):
-            print(f"\nRequest {i+1}:")
-            print(f"  IP: {req['ip_address']}")
-            print(f"  Timestamp: {req['timestamp']}")
-            print(f"  Method: {req['method']}")
-            print(f"  Path: {req['path']}")
-            print(f"  Query Params: {req['query_params']}")
-            print(f"  User-Agent: {req['headers'].get('User-Agent')}")
-            print(f"  Full Path (decoded): {req['full_path']}") # Show decoded full path
-            print("-" * 40)
-        if len(requests) > 5:
-            logging.info(f"... and {len(requests) - 5} more requests.")
-    else:
-        logging.info("No requests were parsed. Check log file path and format.")
+    # --- Detect Attacks ---
+    logging.info("\n--- Analyzing requests for attack patterns ---")
+    all_detected_threats = []
+    for i, req in enumerate(requests):
+        threats_in_request = detect_attacks(req)
+        if threats_in_request:
+            all_detected_threats.extend(threats_in_request)
+            logging.info(f"Threat(s) detected in request from {req['ip_address']} ({req['method']} {req['full_path']}):")
+            for threat in threats_in_request:
+                logging.info(f"  - {threat['name']} (Severity: {threat['severity']}) in {threat['matched_field']}: '{threat['matched_value']}'")
+        else:
+            logging.debug(f"No threats detected in request from {req['ip_address']} ({req['method']} {req['full_path']})")
 
-    logging.info("AWAF-RGT finished Phase 1.")
+    logging.info(f"\n--- Analysis Complete. Total threats detected: {len(all_detected_threats)} ---")
+
+    logging.info("AWAF-RGT finished Phase 2.")
 
 if __name__ == "__main__":
     main()
