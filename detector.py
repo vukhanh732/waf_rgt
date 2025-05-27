@@ -1,5 +1,6 @@
 import re
 import logging
+import json # Ensure json is imported for request_body handling
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -134,15 +135,28 @@ def detect_attacks(parsed_request):
 
     for signature in ATTACK_SIGNATURES:
         for field in signature['target_fields']:
-            # Get the value to check based on the field name
             value_to_check = None
+            
             if field == 'full_path':
                 value_to_check = parsed_request.get('full_path', '')
+                if value_to_check and signature['pattern'].search(value_to_check):
+                    detected_threats.append({
+                        'name': signature['name'],
+                        'severity': signature['severity'],
+                        'description': signature['description'],
+                        'matched_field': field,
+                        'matched_value': value_to_check,
+                        'matched_pattern': signature['pattern'].pattern,
+                        'waf_rule_tag': signature['waf_rule_tag']
+                    })
+                    logger.debug(f"Detected {signature['name']} in {field}: {value_to_check}")
+                    continue # Move to next signature after a match in this field
+
             elif field == 'query_params':
                 # Check each value in query_params dictionary
                 for param_name, param_values in parsed_request.get('query_params', {}).items():
                     for param_value in param_values:
-                        if signature['pattern'].search(param_value):
+                        if param_value and signature['pattern'].search(param_value): # Added check for param_value
                             detected_threats.append({
                                 'name': signature['name'],
                                 'severity': signature['severity'],
@@ -153,17 +167,20 @@ def detect_attacks(parsed_request):
                                 'waf_rule_tag': signature['waf_rule_tag']
                             })
                             logger.debug(f"Detected {signature['name']} in query param '{param_name}' with value '{param_value}'")
-                            # Found a match, move to next signature to avoid duplicate detections for the same signature
-                            # but allow other signatures to match on this request
+                            # Found a match for this signature, no need to check other query params for this signature
                             break 
                     else: # This else belongs to the inner for loop (param_values)
                         continue
                     break # This break belongs to the outer for loop (param_name)
-                if detected_threats and detected_threats[-1].get('waf_rule_tag') == signature['waf_rule_tag']:
-                    continue # Already added for this signature
+                # If a detection was made for this signature in query_params, move to next signature
+                if any(d['waf_rule_tag'] == signature['waf_rule_tag'] for d in detected_threats):
+                    continue
                 
             elif field == 'request_body':
                 value_to_check = parsed_request.get('request_body', '')
+                if not value_to_check: # If body is empty, skip
+                    continue
+                
                 # If request_body is JSON, check values within it
                 if parsed_request.get('headers', {}).get('Content-Type', '').startswith('application/json'):
                     try:
@@ -181,11 +198,11 @@ def detect_attacks(parsed_request):
                                     'waf_rule_tag': signature['waf_rule_tag']
                                 })
                                 logger.debug(f"Detected {signature['name']} in JSON body key '{key}' with value '{val}'")
-                                break # Found a match, move to next signature
-                        if detected_threats and detected_threats[-1].get('waf_rule_tag') == signature['waf_rule_tag']:
-                            continue # Already added for this signature
+                                break # Found a match for this signature, move to next signature
+                        if any(d['waf_rule_tag'] == signature['waf_rule_tag'] for d in detected_threats):
+                            continue
                     except json.JSONDecodeError:
-                        logger.warning(f"Request body is not valid JSON for {parsed_request.get('ip_address')}")
+                        logger.warning(f"Request body is not valid JSON for {parsed_request.get('ip_address')}. Checking as raw string.")
                         # Fallback to checking raw body if JSON parsing fails
                         if signature['pattern'].search(value_to_check):
                             detected_threats.append({
@@ -212,10 +229,11 @@ def detect_attacks(parsed_request):
                         })
                         logger.debug(f"Detected {signature['name']} in request body")
                         continue # Already added for this signature
+            
             elif field == 'headers':
                 # Specifically for User-Agent or other headers
                 user_agent = parsed_request.get('headers', {}).get('User-Agent', '')
-                if signature['pattern'].search(user_agent):
+                if user_agent and signature['pattern'].search(user_agent): # Added check for user_agent
                     detected_threats.append({
                         'name': signature['name'],
                         'severity': signature['severity'],
@@ -228,19 +246,6 @@ def detect_attacks(parsed_request):
                     logger.debug(f"Detected {signature['name']} in User-Agent header: {user_agent}")
                     continue # Already added for this signature
             
-            # For other simple string fields (like 'full_path' if not already handled by query_params)
-            if value_to_check and signature['pattern'].search(value_to_check):
-                detected_threats.append({
-                    'name': signature['name'],
-                    'severity': signature['severity'],
-                    'description': signature['description'],
-                    'matched_field': field,
-                    'matched_value': value_to_check,
-                    'matched_pattern': signature['pattern'].pattern,
-                    'waf_rule_tag': signature['waf_rule_tag']
-                })
-                logger.debug(f"Detected {signature['name']} in {field}: {value_to_check}")
-
     return detected_threats
 
 # Example usage (for testing this module directly)
@@ -259,7 +264,7 @@ if __name__ == "__main__":
         "status_code": 403,
         "response_size": 200,
         "headers": {"User-Agent": "Mozilla/5.0 ..."},
-        "request_body": None
+        "request_body": None # This was the source of the error for POST requests
     }
 
     sample_parsed_request_xss = {
@@ -310,6 +315,23 @@ if __name__ == "__main__":
         "request_body": None
     }
 
+    # New sample for POST request with a simulated body (even though not in log)
+    sample_parsed_request_post_with_body = {
+        "raw_log": "...",
+        "ip_address": "192.168.1.12",
+        "timestamp": "27/May/2025:10:00:30 +0000",
+        "method": "POST",
+        "full_path": "/api/data",
+        "path": "/api/data",
+        "query_string": "",
+        "query_params": {},
+        "http_version": "HTTP/1.1",
+        "status_code": 200,
+        "response_size": 100,
+        "headers": {"User-Agent": "PostmanRuntime/7.29.0", "Content-Type": "application/x-www-form-urlencoded"},
+        "request_body": "param1=value1&param2=test%27%20OR%201=1--" # Simulated body for testing
+    }
+
     print("--- Testing SQLi Detection ---")
     detections = detect_attacks(sample_parsed_request_sqli)
     for d in detections:
@@ -327,6 +349,11 @@ if __name__ == "__main__":
 
     print("\n--- Testing Scanner User-Agent Detection ---")
     detections = detect_attacks(sample_parsed_request_scanner_ua)
+    for d in detections:
+        print(f"  Detected: {d['name']} (Severity: {d['severity']}) in {d['matched_field']}: {d['matched_value']}")
+
+    print("\n--- Testing SQLi in POST Body Detection ---")
+    detections = detect_attacks(sample_parsed_request_post_with_body)
     for d in detections:
         print(f"  Detected: {d['name']} (Severity: {d['severity']}) in {d['matched_field']}: {d['matched_value']}")
 
